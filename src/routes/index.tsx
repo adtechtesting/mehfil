@@ -213,6 +213,7 @@ export function Mehfil() {
   const ytPlayerRef = useRef<YTPlayerInstance | null>(null);
   const ytReadyRef = useRef(false);
   const [ytReady, setYtReady] = useState(false);
+  const silentAnchorRef = useRef<HTMLAudioElement | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const isInitialMount = useRef(true);
   const shuffleRef = useRef(shuffle);
@@ -401,6 +402,34 @@ export function Mehfil() {
     }
   }, [getNextTrackIndex]);
 
+  // Silent Audio Anchor Engine: Keeps mobile OS background audio session active without affecting song playback
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // 1-second silent WAV data URI
+    const silentAudio = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA");
+    silentAudio.loop = true;
+    silentAudio.volume = 0.001;
+    silentAnchorRef.current = silentAudio;
+
+    return () => {
+      silentAudio.pause();
+      silentAnchorRef.current = null;
+    };
+  }, []);
+
+  // Sync silent audio anchor with playing state
+  useEffect(() => {
+    const silent = silentAnchorRef.current;
+    if (silent) {
+      if (playing) {
+        silent.play().catch(() => {});
+      } else {
+        silent.pause();
+      }
+    }
+  }, [playing]);
+
   // Fast Load new track into YouTube Player on index change
   useEffect(() => {
     const player = ytPlayerRef.current;
@@ -437,9 +466,11 @@ export function Mehfil() {
     if (ytReady && player && typeof player.playVideo === "function") {
       if (playing) {
         player.pauseVideo();
+        silentAnchorRef.current?.pause();
         setPlaying(false);
       } else {
         try {
+          silentAnchorRef.current?.play().catch(() => {});
           if (typeof player.unMute === "function") player.unMute();
           if (typeof player.setVolume === "function") player.setVolume(100);
           player.playVideo();
@@ -479,12 +510,14 @@ export function Mehfil() {
 
         navigator.mediaSession.setActionHandler("play", () => {
           setPlaying(true);
+          silentAnchorRef.current?.play().catch(() => {});
           const player = ytPlayerRef.current;
           if (player && typeof player.playVideo === "function") player.playVideo();
         });
 
         navigator.mediaSession.setActionHandler("pause", () => {
           setPlaying(false);
+          silentAnchorRef.current?.pause();
           const player = ytPlayerRef.current;
           if (player && typeof player.pauseVideo === "function") player.pauseVideo();
         });
